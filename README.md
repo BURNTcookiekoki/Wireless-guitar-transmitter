@@ -3,6 +3,13 @@ a Wireless guitar transmitter over 2.4GH
 
 A wireless guitar transmitter using 2 esp32 s3 devboards and a 2.4GH signal to receive and transmit the signal. It uses an Analogue to digital on the transmitter to transmit the digital signal, and uses a digital to analogue board to push signal through your amp or pedals
 
+This is the full schemaitc done on Kicad, there is the receiver, transmitter, and joiner/splitter pedal:
+
+<img width="335" height="224" alt="Screenshot 2026-11-09 183803" src="https://github.com/user-attachments/assets/7bda6d1e-3f8a-4322-9fec-df6b86804f34" />
+<img width="1515" height="881" alt="Screenshot 2026-11-09 183824" src="https://github.com/user-attachments/assets/f66d617c-e5d4-4fe4-922f-0a668a2d510e" />
+<img width="872" height="711" alt="Screenshot 2026-11-09 183756" src="https://github.com/user-attachments/assets/bdd5478f-ad4c-47ae-92f3-cbf560f3ef62" />
+
+
 [BOM.csv](https://github.com/user-attachments/files/34564968/BOM.csv)
 
 "Reference","Qty","Value","MANUFACTURER","Link","Price"
