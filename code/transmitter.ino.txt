@@ -1,0 +1,88 @@
+#include <Arduino.h>
+#include <driver/i2s_std.h>
+#include <SPI.h>
+#include <RF24.h>
+
+// --- PIN CONFIGURATIONS ---
+#define I2S_BCK_IO      GPIO_NUM_4
+#define I2S_WS_IO       GPIO_NUM_5
+#define I2S_DIN_IO      GPIO_NUM_6
+#define I2S_MCLK_IO     GPIO_NUM_7
+
+#define NRF_CE_PIN      10
+#define NRF_CSN_PIN     9
+
+// --- AUDIO CONFIGURATIONS ---
+#define SAMPLE_RATE     44100
+#define AUDIO_DEPTH     I2S_DATA_BIT_WIDTH_16BIT
+#define BLOCK_SAMPLES   15  // 15 mono samples = 30 bytes audio payload
+
+// --- PACKET STRUCTURE (31 Bytes Total) ---
+struct __attribute__((__packed__)) AudioPacket {
+    uint8_t packet_id;
+    int16_t audio_data[BLOCK_SAMPLES];
+};
+
+RF24 radio(NRF_CE_PIN, NRF_CSN_PIN);
+i2s_chan_handle_t rx_handle = NULL;
+AudioPacket tx_packet;
+uint8_t current_id = 0;
+
+void init_i2s_adc() {
+    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+    i2s_new_channel(&chan_cfg, NULL, &rx_handle);
+
+    i2s_std_config_t std_cfg = {
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(SAMPLE_RATE),
+        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(AUDIO_DEPTH, I2S_SLOT_MODE_MONO),
+        .gpio_cfg = {
+            .mclk = I2S_MCLK_IO,
+            .bclk = I2S_BCK_IO,
+            .ws = I2S_WS_IO,
+            .dout = I2S_GPIO_UNUSED,
+            .din = I2S_DIN_IO,
+            .invert_flags = { .mclk_inv = false, .bclk_inv = false, .ws_inv = false }
+        }
+    };
+    i2s_channel_init_std_rx(rx_handle, &std_cfg);
+    i2s_channel_enable(rx_handle);
+}
+
+void init_nrf_radio() {
+    SPI.begin(12, 13, 11, 9); // SCK=12, MISO=13, MOSI=11, CSN=9
+    if (!radio.begin()) {
+        while (1); // Halt if radio fails initialization
+    }
+    
+    // Core Optimizations for Ultra-Low Latency
+    radio.setAddressWidth(3);               // Minimize address overhead (3 bytes)
+    radio.setDataRate(RF24_2MBPS);          // Maximum data throughput pipeline
+    radio.setPALevel(RF24_PA_MAX);          // Maximum output power drive
+    radio.setAutoAck(false);                // Disable Enhanced ShockBurst (No Auto-ACK)
+    radio.setRetries(0, 0);                 // Absolutely zero software retries
+    radio.setPayloadSize(sizeof(AudioPacket)); // Lock hardware payload window to 31 bytes
+    
+    uint8_t pipe_address[3] = {0xE7, 0xE7, 0xE7};
+    radio.openWritingPipe(pipe_address);
+    radio.stopListening();
+}
+
+void setup() {
+    init_i2s_adc();
+    init_nrf_radio();
+}
+
+void loop() {
+    size_t bytes_read = 0;
+    size_t bytes_to_read = BLOCK_SAMPLES * sizeof(int16_t);
+    
+    // Read raw audio directly out of the double-buffered Hardware I2S DMA pipeline
+    esp_err_t err = i2s_channel_read(rx_handle, (void*)tx_packet.audio_data, bytes_to_read, &bytes_read, portMAX_DELAY);
+    
+    if (err == ESP_OK && bytes_read == bytes_to_read) {
+        tx_packet.packet_id = current_id++;
+        
+        // Ship the package across the air immediately via high-speed SPI
+        radio.write(&tx_packet, sizeof(AudioPacket));
+    }
+}
